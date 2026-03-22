@@ -707,16 +707,16 @@ h1 span { color: var(--accent); }
    ══════════════════════════════════════════════════════════════ */
 
 const CLASSES = [
-  { name: "Cats",       emoji: "🐱", color: "#ff7f7f" },
-  { name: "Dogs",       emoji: "🐶", color: "#ffb347" },
-  { name: "Birds",      emoji: "🐦", color: "#ffe082" },
-  { name: "Fish",       emoji: "🐠", color: "#80cbc4" },
-  { name: "Flowers",    emoji: "🌸", color: "#f48fb1" },
-  { name: "Trees",      emoji: "🌲", color: "#81c784" },
-  { name: "Cars",       emoji: "🚗", color: "#64b5f6" },
-  { name: "Bikes",      emoji: "🚲", color: "#ba68c8" },
-  { name: "Food",       emoji: "🍕", color: "#ffcc02" },
-  { name: "Buildings",  emoji: "🏛️", color: "#90a4ae" },
+  { name: "Cats",       keyword: "cat",      emoji: "🐱", color: "#ff7f7f" },
+  { name: "Dogs",       keyword: "dog",      emoji: "🐶", color: "#ffb347" },
+  { name: "Birds",      keyword: "bird",     emoji: "🐦", color: "#ffe082" },
+  { name: "Fish",       keyword: "fish",     emoji: "🐠", color: "#80cbc4" },
+  { name: "Flowers",    keyword: "flower",   emoji: "🌸", color: "#f48fb1" },
+  { name: "Trees",      keyword: "tree",     emoji: "🌲", color: "#81c784" },
+  { name: "Cars",       keyword: "car",      emoji: "🚗", color: "#64b5f6" },
+  { name: "Bikes",      keyword: "bicycle",  emoji: "🚲", color: "#ba68c8" },
+  { name: "Food",       keyword: "pizza",    emoji: "🍕", color: "#ffcc02" },
+  { name: "Buildings",  keyword: "architecture", emoji: "🏛️", color: "#90a4ae" },
 ];
 
 /* ─── Grid Score metadata ─── */
@@ -725,22 +725,24 @@ const GRID_SCORE_HIGH = 0.87;   // ← replace with your actual high score
 
 /* ─── Helper: build a 100-item arrangement ─── */
 function buildArrangement(shuffleStyle) {
-  // 10 images per class = 100 total
   let items = [];
+  
+  // 10 classes × 10 images = 100 total
   for (let c = 0; c < 10; c++) {
     for (let i = 0; i < 10; i++) {
-      items.push({ classIndex: c, src: null });  // src null → emoji fallback
+      const keyword = CLASSES[c].keyword;
+      // The ?lock= parameter ensures we get 10 *different* images for the same keyword
+      const imgSrc = `https://loremflickr.com/200/200/${keyword}?lock=${i}`;
+      
+      items.push({ classIndex: c, src: imgSrc }); 
     }
   }
 
   if (shuffleStyle === "high") {
-    // HIGH quality: items of the same class are clustered together (blocks of 10)
-    // Already in order — just shuffle within each class block slightly
-    // In production: replace with your actual sorted image array
-    return items; // perfect clustering
+    // High quality: keep items of the same class clustered together
+    return items; 
   } else {
-    // LOW quality: fully randomised
-    // In production: replace with your actual low-score image array
+    // Low quality: fully randomized
     return fisherYates([...items]);
   }
 }
@@ -758,7 +760,10 @@ function buildTrialArrangement() {
   let items = [];
   for (let c = 0; c < 4; c++) {
     for (let i = 0; i < 5; i++) {
-      items.push({ classIndex: c, src: null });
+      const keyword = CLASSES[c].keyword;
+      // Using a different lock offset so trial images differ from main task images
+      const imgSrc = `https://loremflickr.com/200/200/${keyword}?lock=${i + 100}`;
+      items.push({ classIndex: c, src: imgSrc });
     }
   }
   return fisherYates(items);
