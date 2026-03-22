@@ -479,19 +479,50 @@ h1 span { color: var(--accent); }
 }
 
 /* ═══════════════════════════════════════════════════════════
-   MOBILE GUARD
+   MOBILE BLOCK — hide study entirely under 768px
    ═══════════════════════════════════════════════════════════ */
-@media (max-width: 700px) {
-  .welcome-card, .done-card, .between-card { padding: 32px 24px; }
-  .sidebar { width: 160px; }
-  .task-main { padding: 16px; }
-  .image-grid { gap: 2px; }
+#mobile-block {
+  display: none;
+  min-height: 100vh;
+  align-items: center; justify-content: center;
+  padding: 40px 28px;
+  text-align: center;
+  flex-direction: column;
+  gap: 16px;
+}
+.mobile-icon { font-size: 52px; }
+.mobile-title {
+  font-family: var(--font-head);
+  font-size: 24px; font-weight: 800;
+  letter-spacing: -.02em;
+}
+.mobile-msg {
+  color: var(--muted); font-size: 13px;
+  line-height: 1.8; max-width: 320px;
+}
+
+@media (max-width: 767px) {
+  /* Hide all study screens */
+  .screen { display: none !important; }
+  /* Show the block message instead */
+  #mobile-block { display: flex; }
 }
 </style>
 </head>
 <body>
 
-<!-- BG GRID DECORATION -->
+<!-- ═══════════════════════════════════════════════════════════
+     MOBILE BLOCK — shown only on screens under 768px
+     ═══════════════════════════════════════════════════════════ -->
+<div id="mobile-block">
+  <div class="mobile-icon">🖥️</div>
+  <div class="mobile-title">Desktop Required</div>
+  <p class="mobile-msg">
+    This study involves clicking many small images precisely and must be completed
+    on a <strong>desktop or laptop</strong> with a mouse or trackpad.
+    Please revisit this page on a larger screen.
+  </p>
+</div>
 
 
 <!-- ═══════════════════════════════════════════════════════════
