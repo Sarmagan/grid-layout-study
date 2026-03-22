@@ -12,17 +12,22 @@
   // ┌─────────────────────────────────────────────────────────┐
   // │  PASTE YOUR APPS SCRIPT WEB APP URL HERE                │
   // └─────────────────────────────────────────────────────────┘
-  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby94qOf580nwLr71b0zAvgJg9ZLBCyFVFCB-a91ONwQwNxH2H-5QT5gimLguPWBF5NC7Q/exec";
+  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyE534IDU4imjkd9Pbx5tWTTyg7a_h2SsvZgMHCf9IH64Oq92SjwQ8lKuNzibYXyDmdrg/exec";
 
-  window.saveToFirestore = async (payload) => {
+  window.saveToSheets = async (payload) => {
     try {
-      await fetch(APPS_SCRIPT_URL, {
+      const res = await fetch(APPS_SCRIPT_URL, {
         method: "POST",
-        mode: "no-cors",
         headers: { "Content-Type": "text/plain" },
         body: JSON.stringify(payload)
       });
-      console.log("Sent to Google Sheets:", payload);
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("Sheets HTTP error:", res.status, text);
+        return { success: false, error: `Server error ${res.status}` };
+      }
+      const json = await res.json();
+      console.log("Saved to Google Sheets:", json);
       return { success: true };
     } catch (e) {
       console.error("Sheets error:", e);
@@ -197,7 +202,8 @@ h1 span { color: var(--accent); }
 #screen-trial, #screen-task {
   flex-direction: row;
   align-items: stretch;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden; /* prevents the outer page from scrolling */
 }
 
 /* --- SIDEBAR --- */
@@ -208,8 +214,12 @@ h1 span { color: var(--accent); }
   display: flex; flex-direction: column;
   padding: 24px 16px;
   gap: 8px;
-  position: sticky; top: 0; height: 100vh;
+  position: sticky; top: 0;
+  height: 100vh;
   overflow-y: auto;
+  /* Sidebar scrolls independently if labels overflow on small screens */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
 .sidebar-header {
@@ -295,6 +305,7 @@ h1 span { color: var(--accent); }
   display: flex; flex-direction: column;
   padding: 28px 32px;
   overflow-y: auto;
+  height: 100vh;
 }
 
 .task-header {
@@ -567,6 +578,17 @@ h1 span { color: var(--accent); }
       <strong>Instructions:</strong> Select a label in the sidebar, then click every image in that class.
       The timer started when this grid appeared. Label all <strong>100 images</strong> as fast as you can.
     </div>
+    <div style="display:flex; align-items:center; gap:14px; margin-bottom:20px;">
+      <div style="flex:1;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+          <span style="font-size:12px; color:var(--muted);">Progress</span>
+          <span style="font-size:12px; font-weight:600; color:var(--text);" id="progress-text">0 / 100 labeled</span>
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar" id="task-progress-bar"></div>
+        </div>
+      </div>
+    </div>
     <div class="image-grid" id="grid-task" style="--cols:10"></div>
   </div>
 </div>
@@ -605,7 +627,7 @@ h1 span { color: var(--accent); }
 
     <table class="results-table" id="results-table">
       <thead>
-        <tr><th>Grid</th><th>Layout Type</th><th>Time</th></tr>
+        <tr><th>Grid</th><th>Layout Type</th><th>Time</th><th>Accuracy</th></tr>
       </thead>
       <tbody></tbody>
     </table>
@@ -782,23 +804,45 @@ const Study = (() => {
      MAIN TASKS
      ══════════════════ */
   let currentTask = 0;
+  let currentItems = []; // stored so onTaskComplete can check accuracy
 
-  function startTask(idx) {
+  async function startTask(idx) {
     currentTask = idx;
     const type  = taskOrder[idx];
     const items = buildArrangement(type);
+    currentItems = items;
 
     showScreen("screen-task");
+
+    // Reset progress bar
+    const bar  = document.getElementById("task-progress-bar");
+    const text = document.getElementById("progress-text");
+    if (bar)  bar.style.width = "0%";
+    if (text) text.textContent = "0 / 100 labeled";
 
     document.getElementById("task-title-text").textContent = `Grid ${idx + 1} of 2`;
     document.getElementById("task-pill-text").textContent  =
       type === "high" ? "High Grid Score" : "Low Grid Score";
 
     buildSidebar("sidebar-task", CLASSES, null, () => {});
-    buildGrid("grid-task", items, CLASSES, `task-${idx}`, 10, (count) => {
+
+    // Show loading state until all images are decoded
+    const gridEl = document.getElementById("grid-task");
+    gridEl.style.opacity = "0.4";
+    gridEl.style.pointerEvents = "none";
+    const timerEl = document.getElementById("timer-display");
+    timerEl.textContent = "Loading…";
+
+    await buildGrid("grid-task", items, CLASSES, `task-${idx}`, 10, (count) => {
+      const pct = (count / 100) * 100;
+      if (bar)  bar.style.width = pct + "%";
+      if (text) text.textContent = `${count} / 100 labeled`;
       if (count === 100) onTaskComplete(idx, type);
     });
 
+    // All images decoded — reveal grid and start timer simultaneously
+    gridEl.style.opacity = "";
+    gridEl.style.pointerEvents = "";
     startTimer();
   }
 
@@ -806,8 +850,19 @@ const Study = (() => {
     const elapsed = stopTimer();
     const score   = taskScores[type];
 
+    // Calculate accuracy: compare each cell's assigned class to true classIndex
+    const grid = document.getElementById("grid-task");
+    const cells = grid.querySelectorAll(".grid-cell");
+    let correct = 0;
+    cells.forEach((cell, i) => {
+      const trueClass     = currentItems[i]?.classIndex;
+      const assignedClass = parseInt(cell.dataset.assignedClass);
+      if (assignedClass === trueClass) correct++;
+    });
+    const accuracy = Math.round((correct / 100) * 100);
+
     const key = idx === 0 ? "grid1" : "grid2";
-    results[key] = { type, score, time: +elapsed.toFixed(3) };
+    results[key] = { type, score, time: +elapsed.toFixed(3), accuracy };
 
     const overlayTime = document.getElementById("overlay-time");
     overlayTime.textContent = elapsed.toFixed(2) + "s";
@@ -844,25 +899,28 @@ const Study = (() => {
       tr.innerHTML = `
         <td>Grid ${i + 1}</td>
         <td>${r.type === "high" ? "High Score" : "Low Score"} (${r.score})</td>
-        <td class="accent">${r.time}s</td>`;
+        <td class="accent">${r.time}s</td>
+        <td class="accent">${r.accuracy}%</td>`;
       tbody.appendChild(tr);
     });
 
-    // Build Firestore payload
+    // Build payload
     const payload = {
-      participantId:    PID,
-      firstGridType:    results.firstGridType,
-      grid1_type:       results.grid1?.type,
-      grid1_score:      results.grid1?.score,
-      grid1_time_s:     results.grid1?.time,
-      grid2_type:       results.grid2?.type,
-      grid2_score:      results.grid2?.score,
-      grid2_time_s:     results.grid2?.time,
+      participantId:      PID,
+      firstGridType:      results.firstGridType,
+      grid1_type:         results.grid1?.type,
+      grid1_score:        results.grid1?.score,
+      grid1_time_s:       results.grid1?.time,
+      grid1_accuracy_pct: results.grid1?.accuracy,
+      grid2_type:         results.grid2?.type,
+      grid2_score:        results.grid2?.score,
+      grid2_time_s:       results.grid2?.time,
+      grid2_accuracy_pct: results.grid2?.accuracy,
     };
 
     const statusEl = document.getElementById("save-status");
-    if (typeof window.saveToFirestore === "function") {
-      const res = await window.saveToFirestore(payload);
+    if (typeof window.saveToSheets === "function") {
+      const res = await window.saveToSheets(payload);
       if (res.success) {
         statusEl.className = "save-status success";
         statusEl.textContent = "✓ Results saved. Thank you!";
@@ -871,10 +929,9 @@ const Study = (() => {
         statusEl.textContent = "⚠ Could not save: " + res.error;
       }
     } else {
-      // Firebase not configured — log locally
       console.table(payload);
       statusEl.className = "save-status error";
-      statusEl.textContent = "⚠ Firebase not configured — results logged to console.";
+      statusEl.textContent = "⚠ Apps Script URL not configured — results logged to console.";
     }
   }
 
@@ -913,17 +970,18 @@ const Study = (() => {
     if (first) first.click();
   }
 
-  function buildGrid(containerId, items, classes, gridId, cols, onCountChange) {
+  async function buildGrid(containerId, items, classes, gridId, cols, onCountChange) {
     const grid = document.getElementById(containerId);
     grid.innerHTML = "";
     grid.style.setProperty("--cols", cols);
     selectedLabel[containerId] = 0;
 
-    // Determine the correct sidebar container id from grid container id
     const sidebarId = containerId.replace("grid-", "sidebar-");
     const labeledCount = {};
     let totalLabeled = 0;
     classes.forEach((_, i) => labeledCount[i] = 0);
+
+    const decodePromises = [];
 
     items.forEach((item, idx) => {
       const cell = document.createElement("div");
@@ -936,6 +994,8 @@ const Study = (() => {
         img.src = item.src;
         img.alt = classes[item.classIndex]?.name || "";
         cell.appendChild(img);
+        // Collect decode promise so timer waits for all images
+        decodePromises.push(img.decode().catch(() => {})); // catch to not block on broken imgs
       } else {
         // Emoji placeholder — styled with class colour
         const tile = document.createElement("div");
@@ -950,22 +1010,40 @@ const Study = (() => {
         const selected = selectedLabel[sidebarId];
         if (selected === undefined) return;
 
-        // TOGGLE: if already labeled with the currently selected class, remove it
         if (cell.dataset.labeled === "1") {
           const prevClass = parseInt(cell.dataset.assignedClass);
-          cell.dataset.labeled = "";
-          cell.dataset.assignedClass = "";
-          cell.style.removeProperty("--label-color");
-          cell.classList.remove("labeled");
 
-          totalLabeled--;
+          // Same class selected → toggle off
+          if (prevClass === selected) {
+            cell.dataset.labeled = "";
+            cell.dataset.assignedClass = "";
+            cell.style.removeProperty("--label-color");
+            cell.classList.remove("labeled");
+
+            totalLabeled--;
+            labeledCount[prevClass]--;
+            const countEl = document.getElementById(`${sidebarId}-count-${prevClass}`);
+            if (countEl) countEl.textContent = labeledCount[prevClass];
+            if (onCountChange) onCountChange(totalLabeled);
+            return;
+          }
+
+          // Different class selected → overwrite (no change to totalLabeled)
           labeledCount[prevClass]--;
-          const countEl = document.getElementById(`${sidebarId}-count-${prevClass}`);
-          if (countEl) countEl.textContent = labeledCount[prevClass];
-          if (onCountChange) onCountChange(totalLabeled);
+          const prevCountEl = document.getElementById(`${sidebarId}-count-${prevClass}`);
+          if (prevCountEl) prevCountEl.textContent = labeledCount[prevClass];
+
+          const cls = classes[selected];
+          cell.dataset.assignedClass = selected;
+          cell.style.setProperty("--label-color", cls.color);
+          labeledCount[selected]++;
+          const newCountEl = document.getElementById(`${sidebarId}-count-${selected}`);
+          if (newCountEl) newCountEl.textContent = labeledCount[selected];
+          // totalLabeled unchanged — cell was already counted
           return;
         }
 
+        // Unlabeled cell → assign
         const cls = classes[selected];
         cell.dataset.labeled = "1";
         cell.dataset.assignedClass = selected;
@@ -975,16 +1053,17 @@ const Study = (() => {
         totalLabeled++;
         labeledCount[selected]++;
 
-        // Update count badge
         const countEl = document.getElementById(`${sidebarId}-count-${selected}`);
         if (countEl) countEl.textContent = labeledCount[selected];
 
-        // Trigger callback
         if (onCountChange) onCountChange(totalLabeled);
       });
 
       grid.appendChild(cell);
     });
+
+    // Resolve when all real images are decoded and painted
+    await Promise.all(decodePromises);
   }
 
   function hexToRgba(hex, alpha) {
@@ -1000,17 +1079,19 @@ const Study = (() => {
     statusEl.textContent = "⏳ Sending test row…";
 
     const dummyPayload = {
-      participantId:  "TEST_USER",
-      firstGridType:  "low",
-      grid1_type:     "low",
-      grid1_score:    0.42,
-      grid1_time_s:   12.345,
-      grid2_type:     "high",
-      grid2_score:    0.87,
-      grid2_time_s:   8.765,
+      participantId:      "TEST_USER",
+      firstGridType:      "low",
+      grid1_type:         "low",
+      grid1_score:        0.42,
+      grid1_time_s:       12.345,
+      grid1_accuracy_pct: 87,
+      grid2_type:         "high",
+      grid2_score:        0.87,
+      grid2_time_s:       8.765,
+      grid2_accuracy_pct: 94,
     };
 
-    const res = await window.saveToFirestore(dummyPayload);
+    const res = await window.saveToSheets(dummyPayload);
     if (res.success) {
       statusEl.className = "save-status success";
       statusEl.textContent = "✓ Test row saved! Check your Google Sheet.";
@@ -1021,9 +1102,8 @@ const Study = (() => {
   }
 
   function jumpToDone() {
-    // Populate dummy results so the table renders
-    results.grid1 = { type: "low",  score: GRID_SCORE_LOW,  time: 12.345 };
-    results.grid2 = { type: "high", score: GRID_SCORE_HIGH, time: 8.765  };
+    results.grid1 = { type: "low",  score: GRID_SCORE_LOW,  time: 12.345, accuracy: 87 };
+    results.grid2 = { type: "high", score: GRID_SCORE_HIGH, time: 8.765,  accuracy: 94 };
     showDone();
   }
 
