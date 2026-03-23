@@ -533,7 +533,7 @@ h1 span { color: var(--accent); }
     <h1>Visual <span>Grouping</span><br>Speed Test</h1>
     <p class="subtitle">
       Help us understand how image arrangement affects how quickly people can classify visual content.
-      Takes roughly <strong style="color:var(--text)">3–5 minutes</strong>.
+      Takes roughly <strong style="color:var(--text)">5–10 minutes</strong>.
     </p>
 
     <div class="steps">
@@ -658,7 +658,7 @@ h1 span { color: var(--accent); }
 
     <table class="results-table" id="results-table">
       <thead>
-        <tr><th>Grid</th><th>Layout Type</th><th>Time</th><th>Accuracy</th></tr>
+        <tr><th>Grid</th><th>Time</th><th>Accuracy</th></tr>
       </thead>
       <tbody></tbody>
     </table>
@@ -706,47 +706,137 @@ h1 span { color: var(--accent); }
    study UI is fully functional without any image assets.
    ══════════════════════════════════════════════════════════════ */
 
+/* ═══════════════════════════════════════════════════════════
+   STL-10 CLASSES
+   Must match the 10 STL-10 categories in the order used when
+   extracting CLIP features (alphabetical: airplane=0 … truck=9).
+   ═══════════════════════════════════════════════════════════ */
 const CLASSES = [
-  { name: "Cats",       keyword: "cat",      emoji: "🐱", color: "#ff7f7f" },
-  { name: "Dogs",       keyword: "dog",      emoji: "🐶", color: "#ffb347" },
-  { name: "Birds",      keyword: "bird",     emoji: "🐦", color: "#ffe082" },
-  { name: "Fish",       keyword: "fish",     emoji: "🐠", color: "#80cbc4" },
-  { name: "Flowers",    keyword: "flower",   emoji: "🌸", color: "#f48fb1" },
-  { name: "Trees",      keyword: "tree",     emoji: "🌲", color: "#81c784" },
-  { name: "Cars",       keyword: "car",      emoji: "🚗", color: "#64b5f6" },
-  { name: "Bikes",      keyword: "bicycle",  emoji: "🚲", color: "#ba68c8" },
-  { name: "Food",       keyword: "pizza",    emoji: "🍕", color: "#ffcc02" },
-  { name: "Buildings",  keyword: "architecture", emoji: "🏛️", color: "#90a4ae" },
+  { name: "Airplane", emoji: "✈️",  color: "#64b5f6" },
+  { name: "Bird",     emoji: "🐦",  color: "#ffe082" },
+  { name: "Car",      emoji: "🚗",  color: "#ff7f7f" },
+  { name: "Cat",      emoji: "🐱",  color: "#f48fb1" },
+  { name: "Deer",     emoji: "🦌",  color: "#81c784" },
+  { name: "Dog",      emoji: "🐶",  color: "#ffb347" },
+  { name: "Horse",    emoji: "🐴",  color: "#90a4ae" },
+  { name: "Monkey",   emoji: "🐒",  color: "#80cbc4" },
+  { name: "Ship",     emoji: "🚢",  color: "#ba68c8" },
+  { name: "Truck",    emoji: "🚛",  color: "#ffcc02" },
 ];
 
-/* ─── Grid Score metadata ─── */
-const GRID_SCORE_LOW  = 0.42;   // ← replace with your actual low score
-const GRID_SCORE_HIGH = 0.87;   // ← replace with your actual high score
+/* ═══════════════════════════════════════════════════════════
+   IMAGE BASE PATH
+   All STL-10 sample images live under this directory.
+   Path: <BASE>/<class_name>/<NNN>.jpg  (e.g. stl10_sample/airplane/000.jpg)
+   ═══════════════════════════════════════════════════════════ */
+const IMG_BASE = "stl10_sample";
 
-/* ─── Helper: build a 100-item arrangement ─── */
-function buildArrangement(shuffleStyle) {
-  let items = [];
-  
-  // 10 classes × 10 images = 100 total
-  for (let c = 0; c < 10; c++) {
-    for (let i = 0; i < 10; i++) {
-      const keyword = CLASSES[c].keyword;
-      // The ?lock= parameter ensures we get 10 *different* images for the same keyword
-      const imgSrc = `https://loremflickr.com/200/200/${keyword}?lock=${i}`;
-      
-      items.push({ classIndex: c, src: imgSrc }); 
-    }
+/* Class names in the same order as CLASSES above (index = classIndex) */
+const CLASS_NAMES = [
+  "airplane","bird","car","cat","deer",
+  "dog","horse","monkey","ship","truck"
+];
+
+/* ═══════════════════════════════════════════════════════════
+   LAYOUT POOL
+   ───────────────────────────────────────────────────────────
+   Each entry describes one saved SA checkpoint layout.
+
+   `dpq`        — used for deduplication only (SA objective)
+   `grid_score` — recorded in Google Sheets and used to rank
+                  which layout is "high" vs "low" for the study
+   `ordering`   — flat row-major source-image indices (0–99)
+
+   HOW TO POPULATE — run the export script:
+     python export_layouts.py
+   and paste the printed entries here.
+   ═══════════════════════════════════════════════════════════ */
+
+const SCORE_DEDUP_THRESHOLD = 0.05;   // applied to dpq
+
+const LAYOUT_POOL = [
+  // ── Populate these from your results/log.csv + .npy files ──
+  // Example entry:
+  //
+  // {
+  //   step:       1550,
+  //   dpq:        0.880517,
+  //   grid_score: 278.868212,
+  //   ordering:   [ 42, 7, 93, … ]
+  // },
+  //
+  // ── PLACEHOLDER entries ──
+{ step: 100, dpq: 0.284119, grid_score: 257.017530, ordering: [60, 27, 92, 96, 71, 34, 72, 6, 36, 99, 44, 11, 80, 12, 83, 74, 0, 28, 42, 66, 8, 87, 39, 53, 47, 2, 91, 86, 79, 13, 31, 97, 5, 26, 57, 16, 82, 4, 94, 25, 88, 90, 37, 56, 9, 67, 35, 75, 98, 38, 59, 18, 62, 29, 70, 64, 93, 21, 85, 65, 95, 84, 24, 54, 40, 15, 20, 30, 68, 10, 17, 52, 73, 32, 49, 33, 23, 77, 43, 58, 48, 45, 14, 50, 89, 76, 19, 7, 46, 3, 81, 78, 22, 41, 63, 69, 51, 61, 1, 55] },
+{ step: 450, dpq: 0.304131, grid_score: 256.443447, ordering: [57, 16, 36, 61, 97, 66, 67, 75, 44, 69, 81, 19, 55, 5, 33, 34, 47, 26, 37, 63, 39, 85, 28, 87, 50, 80, 72, 43, 92, 32, 35, 9, 14, 1, 59, 51, 65, 11, 77, 25, 90, 6, 45, 48, 41, 42, 62, 68, 84, 99, 74, 12, 8, 29, 40, 78, 93, 82, 96, 13, 38, 88, 21, 7, 30, 86, 46, 15, 60, 31, 53, 0, 54, 91, 83, 52, 24, 94, 98, 2, 64, 27, 58, 4, 71, 73, 17, 20, 56, 23, 49, 22, 70, 10, 18, 3, 89, 76, 95, 79] },
+{ step: 350, dpq: 0.325480, grid_score: 257.220764, ordering: [49, 39, 28, 72, 11, 89, 41, 65, 12, 4, 34, 42, 57, 33, 40, 45, 29, 70, 84, 46, 79, 63, 96, 69, 10, 76, 52, 66, 22, 91, 26, 62, 31, 60, 8, 16, 81, 30, 67, 55, 37, 61, 92, 48, 2, 73, 95, 13, 71, 24, 35, 86, 14, 93, 38, 18, 78, 51, 59, 99, 88, 7, 3, 43, 0, 54, 64, 83, 17, 77, 56, 58, 21, 53, 6, 5, 9, 94, 25, 19, 44, 90, 97, 27, 20, 23, 1, 85, 87, 74, 36, 50, 75, 47, 98, 82, 80, 68, 15, 32] },
+{ step: 600, dpq: 0.364147, grid_score: 258.157586, ordering: [88, 66, 59, 55, 36, 12, 97, 14, 74, 60, 45, 54, 51, 70, 27, 49, 79, 19, 0, 96, 87, 63, 34, 50, 53, 86, 35, 80, 25, 18, 24, 31, 6, 46, 17, 61, 56, 15, 16, 75, 11, 58, 8, 82, 44, 30, 32, 33, 76, 43, 94, 48, 95, 41, 42, 99, 65, 72, 13, 10, 23, 37, 81, 9, 71, 78, 83, 40, 77, 73, 20, 4, 3, 7, 1, 29, 68, 52, 67, 93, 90, 28, 2, 47, 21, 62, 89, 84, 64, 57, 26, 38, 39, 85, 5, 92, 91, 98, 22, 69] },
+{ step: 650, dpq: 0.432400, grid_score: 260.335766, ordering: [17, 69, 34, 95, 93, 18, 41, 57, 90, 26, 94, 62, 97, 86, 29, 43, 22, 56, 84, 73, 54, 87, 23, 27, 82, 71, 14, 11, 70, 24, 81, 80, 0, 58, 64, 13, 50, 63, 78, 75, 28, 3, 7, 67, 61, 60, 49, 30, 72, 76, 83, 96, 31, 6, 52, 51, 48, 38, 16, 46, 1, 66, 2, 21, 74, 88, 45, 35, 44, 47, 5, 98, 8, 99, 59, 55, 12, 19, 79, 39, 4, 85, 92, 91, 25, 36, 40, 65, 15, 77, 9, 89, 68, 20, 37, 53, 32, 42, 10, 33] },
+{ step: 700, dpq: 0.539903, grid_score: 261.769020, ordering: [24, 42, 30, 66, 37, 75, 35, 15, 49, 44, 95, 55, 50, 0, 11, 88, 74, 76, 13, 46, 90, 20, 29, 22, 98, 14, 18, 45, 39, 36, 97, 21, 91, 93, 72, 77, 28, 34, 48, 32, 99, 6, 69, 94, 84, 73, 70, 41, 31, 43, 27, 26, 89, 8, 71, 79, 10, 16, 38, 33, 92, 80, 86, 82, 57, 12, 56, 40, 64, 53, 96, 83, 85, 81, 2, 62, 59, 67, 63, 54, 23, 3, 5, 4, 68, 19, 61, 58, 52, 47, 9, 7, 1, 87, 25, 65, 51, 17, 78, 60] },
+{ step: 800, dpq: 0.562136, grid_score: 262.422728, ordering: [35, 22, 74, 20, 29, 28, 86, 99, 83, 92, 36, 76, 75, 26, 94, 95, 81, 85, 8, 6, 55, 41, 34, 79, 90, 21, 82, 80, 89, 84, 44, 56, 51, 70, 58, 93, 97, 87, 98, 4, 50, 59, 53, 60, 24, 54, 96, 88, 2, 9, 12, 45, 72, 32, 31, 25, 7, 23, 5, 1, 42, 33, 40, 65, 78, 71, 13, 0, 62, 3, 17, 46, 11, 15, 77, 48, 64, 52, 91, 69, 18, 19, 43, 37, 39, 73, 61, 10, 67, 66, 14, 47, 38, 16, 49, 30, 57, 68, 27, 63] },
+{ step: 850, dpq: 0.648677, grid_score: 263.880146, ordering: [31, 15, 16, 17, 1, 4, 87, 88, 81, 84, 13, 10, 38, 0, 6, 7, 96, 83, 89, 82, 32, 33, 49, 27, 3, 23, 2, 5, 86, 85, 45, 39, 34, 19, 9, 20, 8, 91, 25, 80, 46, 44, 14, 40, 28, 21, 26, 93, 98, 99, 42, 43, 47, 50, 22, 29, 94, 12, 97, 92, 48, 18, 41, 37, 24, 35, 90, 60, 62, 95, 71, 70, 78, 55, 75, 36, 54, 64, 66, 68, 74, 76, 72, 51, 52, 53, 30, 69, 67, 61, 79, 11, 77, 73, 59, 56, 58, 63, 57, 65] },
+{ step: 900, dpq: 0.744710, grid_score: 264.188656, ordering: [47, 43, 44, 95, 96, 99, 92, 82, 88, 83, 48, 49, 10, 93, 97, 98, 91, 86, 85, 87, 45, 40, 46, 42, 94, 23, 20, 5, 0, 89, 17, 13, 39, 41, 26, 21, 3, 81, 80, 84, 34, 15, 14, 18, 29, 22, 25, 7, 8, 2, 31, 16, 19, 11, 90, 28, 27, 1, 24, 4, 76, 38, 75, 33, 37, 55, 65, 63, 9, 6, 78, 70, 72, 12, 59, 50, 67, 62, 66, 61, 71, 74, 79, 36, 56, 35, 58, 57, 69, 68, 77, 73, 51, 32, 54, 30, 52, 60, 53, 64] },
+{ step: 950, dpq: 0.772594, grid_score: 264.854633, ordering: [45, 40, 43, 48, 95, 96, 83, 92, 84, 86, 47, 44, 46, 42, 93, 97, 98, 99, 80, 85, 39, 49, 17, 12, 94, 0, 91, 82, 81, 88, 38, 19, 10, 33, 90, 25, 5, 3, 89, 87, 15, 13, 14, 41, 24, 22, 21, 8, 2, 7, 16, 32, 11, 18, 20, 29, 26, 4, 1, 23, 31, 78, 75, 35, 50, 28, 65, 27, 6, 9, 79, 34, 74, 37, 55, 58, 56, 68, 62, 66, 76, 77, 70, 36, 59, 53, 54, 67, 64, 60, 72, 73, 71, 51, 30, 57, 52, 61, 63, 69] },
+{ step: 1000, dpq: 0.801026, grid_score: 264.581703, ordering: [10, 19, 47, 39, 93, 95, 83, 92, 81, 80, 46, 15, 17, 45, 94, 98, 99, 85, 82, 84, 13, 43, 44, 48, 90, 97, 96, 89, 87, 86, 49, 11, 14, 40, 65, 21, 91, 5, 88, 8, 16, 38, 18, 12, 20, 29, 24, 0, 6, 4, 31, 32, 33, 42, 22, 28, 27, 9, 3, 7, 79, 34, 35, 41, 37, 26, 25, 23, 2, 1, 76, 78, 75, 50, 59, 56, 54, 66, 60, 62, 73, 74, 72, 36, 30, 53, 52, 64, 63, 68, 71, 77, 70, 55, 51, 58, 57, 61, 69, 67] },
+{ step: 1600, dpq: 0.826238, grid_score: 264.829634, ordering: [31, 39, 32, 34, 95, 99, 92, 85, 84, 83, 38, 47, 44, 48, 93, 98, 96, 86, 80, 81, 49, 45, 43, 42, 65, 94, 91, 89, 82, 87, 16, 10, 46, 40, 90, 21, 97, 0, 8, 88, 13, 17, 14, 41, 28, 29, 20, 5, 3, 2, 15, 11, 18, 33, 22, 24, 25, 1, 4, 7, 77, 19, 12, 35, 50, 26, 27, 23, 6, 9, 79, 71, 74, 37, 55, 58, 54, 69, 60, 62, 78, 72, 75, 36, 59, 56, 52, 64, 66, 67, 76, 73, 70, 51, 30, 53, 57, 61, 63, 68] },
+{ step: 1250, dpq: 0.852730, grid_score: 264.948846, ordering: [39, 31, 32, 34, 96, 92, 99, 86, 84, 81, 38, 47, 44, 48, 95, 93, 98, 85, 82, 89, 49, 45, 43, 42, 65, 94, 91, 83, 88, 80, 17, 10, 46, 40, 90, 21, 97, 0, 5, 87, 16, 13, 14, 41, 28, 29, 24, 7, 8, 4, 15, 11, 18, 12, 22, 20, 25, 1, 6, 3, 77, 19, 33, 35, 37, 26, 27, 23, 2, 9, 79, 71, 74, 50, 55, 58, 30, 69, 66, 62, 76, 72, 75, 36, 59, 53, 52, 64, 60, 67, 78, 73, 70, 51, 56, 54, 63, 57, 68, 61] },
+{ step: 1550, dpq: 0.880517, grid_score: 265.036039, ordering: [31, 39, 32, 34, 95, 96, 92, 85, 82, 81, 38, 47, 44, 48, 93, 98, 99, 86, 83, 84, 49, 45, 43, 42, 65, 94, 91, 87, 89, 80, 16, 10, 46, 40, 90, 21, 97, 8, 4, 88, 13, 17, 14, 41, 28, 29, 20, 0, 5, 3, 15, 11, 18, 12, 22, 24, 25, 1, 9, 7, 79, 19, 33, 35, 50, 26, 27, 23, 2, 6, 76, 71, 74, 37, 55, 58, 54, 60, 69, 62, 77, 72, 75, 36, 59, 56, 52, 64, 67, 66, 78, 73, 70, 51, 30, 53, 57, 61, 63, 68] },
+];
+
+/* ═══════════════════════════════════════════════════════════
+   LAYOUT SELECTION
+   Deduplicate by dpq, pick two at random, rank by grid_score.
+   ═══════════════════════════════════════════════════════════ */
+function pickLayouts() {
+  // Deduplicate by dpq
+  const sorted = [...LAYOUT_POOL].sort((a, b) => a.dpq - b.dpq);
+  const deduped = [];
+  for (const entry of sorted) {
+    const tooClose = deduped.some(k => Math.abs(k.dpq - entry.dpq) < SCORE_DEDUP_THRESHOLD);
+    if (!tooClose) deduped.push(entry);
   }
 
-  if (shuffleStyle === "high") {
-    // High quality: keep items of the same class clustered together
-    return items; 
-  } else {
-    // Low quality: fully randomized
-    return fisherYates([...items]);
+  if (deduped.length < 2) {
+    console.error("LAYOUT_POOL needs at least 2 non-duplicate entries.");
   }
+
+  // Pick two distinct entries at random
+  const i = Math.floor(Math.random() * deduped.length);
+  let j;
+  do { j = Math.floor(Math.random() * deduped.length); } while (j === i);
+
+  const a = deduped[i], b = deduped[j];
+  // Rank by grid_score for the study
+  return {
+    high: a.grid_score >= b.grid_score ? a : b,
+    low:  a.grid_score >= b.grid_score ? b : a,
+  };
 }
 
+/* Selected once per page load — shared by both task runs */
+const SELECTED_LAYOUTS = pickLayouts();
+
+/* ═══════════════════════════════════════════════════════════
+   ARRANGEMENT BUILDER
+   Converts an ordering array into the flat items array the
+   grid builder expects: { src, classIndex }
+   ═══════════════════════════════════════════════════════════ */
+function orderingToItems(ordering) {
+  return ordering.map(srcIdx => {
+    const classIndex = Math.floor(srcIdx / 10);
+    const sampleIdx  = srcIdx % 10;
+    const fileName   = String(sampleIdx).padStart(3, "0") + ".jpg";
+    const src        = `${IMG_BASE}/${CLASS_NAMES[classIndex]}/${fileName}`;
+    return { src, classIndex };
+  });
+}
+
+function buildArrangement(type) {
+  const layout = SELECTED_LAYOUTS[type];
+  return orderingToItems(layout.ordering);
+}
+
+/* ─── Trial arrangement: 20 items from the high-score layout's
+       first 20 cells, re-shuffled so it doesn't spoil the real grid ─── */
 function fisherYates(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -755,18 +845,11 @@ function fisherYates(arr) {
   return arr;
 }
 
-/* ─── Trial arrangement: 4 classes × 5 items = 20 ─── */
 function buildTrialArrangement() {
-  let items = [];
-  for (let c = 0; c < 4; c++) {
-    for (let i = 0; i < 5; i++) {
-      const keyword = CLASSES[c].keyword;
-      // Using a different lock offset so trial images differ from main task images
-      const imgSrc = `https://loremflickr.com/200/200/${keyword}?lock=${i + 100}`;
-      items.push({ classIndex: c, src: imgSrc });
-    }
-  }
-  return fisherYates(items);
+  // Take the first 20 items from the high layout and shuffle them
+  // so the trial gives a representative sample without revealing the real order.
+  const allItems = orderingToItems(SELECTED_LAYOUTS.high.ordering);
+  return fisherYates(allItems.slice(0, 20));
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -784,8 +867,8 @@ const Study = (() => {
     : ["low",  "high"];
 
   const taskScores = {
-    high: GRID_SCORE_HIGH,
-    low:  GRID_SCORE_LOW,
+    high: SELECTED_LAYOUTS.high.grid_score,
+    low:  SELECTED_LAYOUTS.low.grid_score,
   };
 
   /* Results store */
@@ -821,9 +904,8 @@ const Study = (() => {
   function startTrial() {
     showScreen("screen-trial");
     const items   = buildTrialArrangement();
-    const classes = CLASSES.slice(0, 4);
-    buildSidebar("sidebar-trial", classes, null, () => {});
-    buildGrid("grid-trial", items, classes, "trial", 5, onTrialChange);
+    buildSidebar("sidebar-trial", CLASSES, null, () => {});
+    buildGrid("grid-trial", items, CLASSES, "trial", 5, onTrialChange);
   }
 
   let trialLabeled = 0;
@@ -857,8 +939,7 @@ const Study = (() => {
     if (text) text.textContent = "0 / 100 labeled";
 
     document.getElementById("task-title-text").textContent = `Grid ${idx + 1} of 2`;
-    document.getElementById("task-pill-text").textContent  =
-      type === "high" ? "High Grid Score" : "Low Grid Score";
+    document.getElementById("task-pill-text").textContent = `Grid ${idx + 1} of 2`;
 
     buildSidebar("sidebar-task", CLASSES, null, () => {});
 
@@ -934,7 +1015,6 @@ const Study = (() => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>Grid ${i + 1}</td>
-        <td>${r.type === "high" ? "High Score" : "Low Score"} (${r.score})</td>
         <td class="accent">${r.time}s</td>
         <td class="accent">${r.accuracy}%</td>`;
       tbody.appendChild(tr);
@@ -1138,8 +1218,8 @@ const Study = (() => {
   }
 
   function jumpToDone() {
-    results.grid1 = { type: "low",  score: GRID_SCORE_LOW,  time: 12.345, accuracy: 87 };
-    results.grid2 = { type: "high", score: GRID_SCORE_HIGH, time: 8.765,  accuracy: 94 };
+    results.grid1 = { type: "low",  score: SELECTED_LAYOUTS.low.grid_score,  time: 12.345, accuracy: 87 };
+    results.grid2 = { type: "high", score: SELECTED_LAYOUTS.high.grid_score, time: 8.765,  accuracy: 94 };
     showDone();
   }
 
